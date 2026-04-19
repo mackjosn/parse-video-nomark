@@ -1,19 +1,14 @@
 #!/bin/bash
-# parse-video skill - 解析视频分享链接（自动下载版）
+# parse-video skill - 解析视频分享链接（Git 浅克隆版）
 # 用法: bash scripts/parse.sh "<视频分享链接>"
 
 set -e
 
 # ============ 配置 ============
-GITEE_OWNER="qiushuihanjing"
-GITEE_REPO="parse-video-nomark"
+GITEE_REPO="https://gitee.com/qiushuihanjing/parse-video-nomark.git"
 GITEE_BRANCH="master"
 BIN_DIR="${HOME}/.cache/parse-video"
 # ==============================
-
-# 获取脚本所在目录
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 
 # 检测操作系统和架构
 detect_binary() {
@@ -39,34 +34,45 @@ detect_binary() {
     echo "parse-video-${os_type}-${arch_type}"
 }
 
-# 下载二进制
+# 下载二进制（通过 git 浅克隆）
 download_binary() {
     local binary_name="$1"
     local binary_path="$2"
+    local git_dir="${BIN_DIR}/.git-repo"
 
     mkdir -p "$BIN_DIR"
 
     if [[ -f "$binary_path" && -x "$binary_path" ]]; then
-        # 已有可执行文件，跳过下载
         return 0
     fi
 
-    echo "📦 首次使用，正在下载 $binary_name..."
+    echo "📦 首次使用，正在下载 $binary_name（通过 Git 克隆，约 30MB）..."
 
-    # Gitee raw URL
-    local download_url="https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}/raw/${GITEE_BRANCH}/dist/${binary_name}"
-
-    if command -v curl &>/dev/null; then
-        curl -L --progress-bar -o "$binary_path" "$download_url"
-    elif command -v wget &>/dev/null; then
-        wget -O "$binary_path" "$download_url"
-    else
-        echo "错误: 需要 curl 或 wget"
-        exit 1
+    # 如果已有 git 仓库，只做增量更新
+    if [[ -d "$git_dir" ]]; then
+        echo "📡 更新仓库..."
+        (cd "$git_dir" && git fetch --depth=1 origin "${GITEE_BRANCH}" 2>/dev/null) || {
+            # fetch 失败则重新克隆
+            rm -rf "$git_dir"
+        }
     fi
 
-    chmod +x "$binary_path"
-    echo "✅ 下载完成: $binary_path"
+    # 如果没有 git 仓库，浅克隆
+    if [[ ! -d "$git_dir" ]]; then
+        echo "⏬ 克隆仓库（仅最新版本）..."
+        rm -rf "$git_dir"
+        git clone --depth=1 --branch "${GITEE_BRANCH}" "${GITEE_REPO}" "$git_dir" 2>&1
+    fi
+
+    # 检出二进制文件
+    if [[ -f "$git_dir/dist/$binary_name" ]]; then
+        cp "$git_dir/dist/$binary_name" "$binary_path"
+        chmod +x "$binary_path"
+        echo "✅ 下载完成: $binary_path"
+    else
+        echo "错误: 仓库中找不到 $binary_name"
+        exit 1
+    fi
 }
 
 # ============ 主逻辑 ============
